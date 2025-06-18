@@ -1,0 +1,29 @@
+# ansible/site.yml
+---
+
+- name: Setup Load Balancer
+  hosts: loadbalancer
+  become: yes
+  roles:
+    - haproxy
+
+- name: Prepare all nodes
+  hosts: k8s_cluster
+  become: yes
+  roles:
+    - common
+    - docker
+    - kubernetes-common
+
+- name: Setup Kubernetes Control Plane
+  hosts: kube_control_plane
+  become: yes
+  roles:
+    - kubernetes-master
+  serial: 1
+
+- name: Setup Kubernetes Workers
+  hosts: kube_node
+  become: yes
+  roles:
+    - kubernetes-worker
