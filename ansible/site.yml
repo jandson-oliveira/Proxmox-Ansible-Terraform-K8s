@@ -1,27 +1,35 @@
-# ansible/site.yml
----
+# ---
+# - name: Setup Load Balancer
+#   hosts: loadbalancer
+#   become: yes
+#   roles:
+#     - haproxy
 
-- name: Setup Load Balancer
-  hosts: loadbalancer
-  become: yes
-  roles:
-    - haproxy
-
-- name: Prepare all nodes
-  hosts: k8s_cluster
+# PLAY 1: Prepara TODOS os nós do cluster (masters e workers)
+- name: Prepare all Kubernetes nodes
+  hosts: k8s_cluster # Assumindo que este grupo contém 'kube_control_plane' e 'kube_node'
   become: yes
   roles:
     - common
     - docker
     - kubernetes-common
 
+  # Esta é a tarefa mágica que resolve o problema:
+  # Ela força a execução de todos os handlers pendentes (como o reinício do containerd)
+  # ANTES de prosseguir para o próximo play.
+  tasks:
+    - name: Flush handlers to apply config changes
+      meta: flush_handlers
+
+# PLAY 2: Configura o Control Plane nos nós que já foram preparados
 - name: Setup Kubernetes Control Plane
   hosts: kube_control_plane
   become: yes
+  serial: 1
   roles:
     - kubernetes-master
-  serial: 1
 
+# PLAY 3: Configura os Workers nos nós que já foram preparados
 - name: Setup Kubernetes Workers
   hosts: kube_node
   become: yes

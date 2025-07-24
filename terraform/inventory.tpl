@@ -18,9 +18,6 @@ all:
 %{ for ip in master_ips ~}
             ${ip}:
 %{ endfor ~}
-    loadbalancer:
-      hosts:
-        ${lb_ip}:
   vars:
     ansible_user: ubuntu
     ansible_ssh_private_key_file: ~/.ssh/id_rsa

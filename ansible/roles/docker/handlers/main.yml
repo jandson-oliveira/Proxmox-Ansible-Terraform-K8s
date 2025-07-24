@@ -1,0 +1,7 @@
+---
+# handlers file for docker/containerd role
+- name: Restart containerd
+  systemd:
+    name: containerd
+    state: restarted
+    daemon_reload: yes

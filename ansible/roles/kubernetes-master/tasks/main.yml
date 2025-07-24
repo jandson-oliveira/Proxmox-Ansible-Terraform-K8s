@@ -1,19 +1,67 @@
-# ansible/roles/kubernetes-master/tasks/main.yml
 ---
+# tasks file for common role - Prepares a node for Kubernetes
+
+- name: Install prerequisite packages
+  apt:
+    name:
+    - apt-transport-https
+    - ca-certificates
+    - curl
+    state: present
+    update_cache: yes
+
+- name: Disable swap for current session
+  command: swapoff -a
+  when: ansible_swaptotal_mb > 0
+
+- name: Disable swap permanently in /etc/fstab
+  replace:
+    path: /etc/fstab
+    regexp: '^(.*swap.*)$'
+    replace: '# \1'
+
+- name: Load required kernel modules for container networking
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+  - overlay
+  - br_netfilter
+
+- name: Ensure kernel modules are loaded on boot
+  copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+
+- name: Set required sysctl parameters for Kubernetes
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-kubernetes-cri.conf # Makes settings persistent
+    state: present
+    reload: yes
+  loop:
+  - { key: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+  - { key: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+  - { key: 'net.ipv4.ip_forward', value: '1' }
+
 - name: Check if cluster is already initialized
   stat:
     path: /etc/kubernetes/admin.conf
   register: k8s_init
 
 - name: Initialize first master node
+  become: True
   shell: |
-    kubeadm init \
-      --control-plane-endpoint=192.168.1.120:6443 \
-      --upload-certs \
-      --pod-network-cidr=10.244.0.0/16
-  when: 
-    - not k8s_init.stat.exists
-    - inventory_hostname == groups['kube_control_plane'][0]
+    sudo kubeadm init \
+       --control-plane-endpoint=192.168.18.120:6443 \
+       --upload-certs \
+       --pod-network-cidr=10.244.0.0/16
+  when:
+  - not k8s_init.stat.exists
+  - inventory_hostname == groups['kube_control_plane'][0]
   register: kubeadm_init
 
 - name: Create .kube directory
@@ -55,6 +103,6 @@
 
 - name: Join additional master nodes
   shell: "{{ join_command_control_plane }} --control-plane"
-  when: 
-    - not k8s_init.stat.exists
-    - inventory_hostname != groups['kube_control_plane'][0]
+  when:
+  - not k8s_init.stat.exists
+  - inventory_hostname != groups['kube_control_plane'][0]
