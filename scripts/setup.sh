@@ -27,7 +27,7 @@ echo "Applying Terraform configuration..."
 terraform apply -auto-approve
 
 echo "Waiting for VMs to be ready..."
-sleep 10
+sleep 30
 
 # Run Ansible playbook
 echo "Running Ansible playbook..."

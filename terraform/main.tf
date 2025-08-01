@@ -16,17 +16,20 @@ provider "proxmox" {
   pm_tls_insecure     = true
 }
 
-# Variables
+# ===================================================================
+# Variáveis de Configuração
+# ===================================================================
+
 variable "PROXMOX_URL" {
   description = "Proxmox API URL"
   type        = string
-  default     = "https://proxmox.tuxops.tech:8006/api2/json"
+  default     = "https://190.89.249.84:8006/api2/json"
 }
 
 variable "PROXMOX_USER" {
   description = "Proxmox username"
   type        = string
-  default     = "terraform-prov@pve!terraform-token"
+  default     = "terraform-user@pve!terraform-token"
 }
 
 variable "PROXMOX_TOKEN" {
@@ -52,7 +55,22 @@ variable "target_node" {
   default     = "catan"
 }
 
-# Master nodes
+# <<< CORREÇÃO: Variáveis de lista para os IPs públicos >>>
+variable "master_ips" {
+  description = "Lista de IPs para os nós master."
+  type        = list(string)
+  default     = ["190.89.249.214"]
+}
+
+variable "worker_ips" {
+  description = "Lista de IPs para os nós worker."
+  type        = list(string)
+  default     = ["190.89.249.215", "190.89.249.216"]
+}
+
+# ===================================================================
+# Nós Master
+# ===================================================================
 resource "proxmox_vm_qemu" "k8s_master" {
   count       = 1
   name        = "k8s-master-${count.index + 1}"
@@ -86,7 +104,7 @@ resource "proxmox_vm_qemu" "k8s_master" {
     ide {
       ide2 {
         cloudinit {
-          storage = "zpool-SSD"
+          storage = "local-lvm"
         }
       }
     }
@@ -95,7 +113,7 @@ resource "proxmox_vm_qemu" "k8s_master" {
         disk {
           size      = 20
           cache     = "writeback"
-          storage   = "zpool-SSD"
+          storage   = "local-lvm"
           replicate = false
         }
       }
@@ -108,20 +126,17 @@ resource "proxmox_vm_qemu" "k8s_master" {
   os_type    = "cloud-init"
   ciuser     = "ubuntu"
   cipassword = "ubuntu"
-  
-  # CORREÇÃO APLICADA AQUI
-  sshkeys = <<-EOT
-    ${var.PUBLIC_SSH_KEY}
-  EOT
-  
-  ipconfig0        = "ip=192.168.18.${120 + count.index}/24,gw=192.168.18.1"
-  nameserver       = "1.1.1.1"
-  startup          = ""
-  automatic_reboot = "true"
+  sshkeys    = var.PUBLIC_SSH_KEY
+
+  # <<< CORREÇÃO: Usando a variável de lista de IPs. Verifique o gateway e a máscara! >>>
+  ipconfig0  = "ip=${var.master_ips[count.index]}/24,gw=190.89.249.1"
+  nameserver = "1.1.1.1"
 }
 
 
-# Worker nodes
+# ===================================================================
+# Nós Worker
+# ===================================================================
 resource "proxmox_vm_qemu" "k8s_worker" {
   count       = 2
   name        = "k8s-worker-${count.index + 1}"
@@ -155,7 +170,7 @@ resource "proxmox_vm_qemu" "k8s_worker" {
     ide {
       ide2 {
         cloudinit {
-          storage = "zpool-SSD"
+          storage = "local-lvm"
         }
       }
     }
@@ -164,7 +179,7 @@ resource "proxmox_vm_qemu" "k8s_worker" {
         disk {
           size      = 20
           cache     = "writeback"
-          storage   = "zpool-SSD"
+          storage   = "local-lvm"
           replicate = false
         }
       }
@@ -177,101 +192,20 @@ resource "proxmox_vm_qemu" "k8s_worker" {
   os_type    = "cloud-init"
   ciuser     = "ubuntu"
   cipassword = "ubuntu"
+  sshkeys    = var.PUBLIC_SSH_KEY
 
-  # CORREÇÃO APLICADA AQUI
-  sshkeys = <<-EOT
-    ${var.PUBLIC_SSH_KEY}
-  EOT
+  # <<< CORREÇÃO: Usando a variável de lista de IPs. Verifique o gateway e a máscara! >>>
+  ipconfig0  = "ip=${var.worker_ips[count.index]}/24,gw=190.89.249.1"
+  nameserver = "1.1.1.1"
 
-  ipconfig0        = "ip=192.168.18.${130 + count.index}/24,gw=192.168.18.1"
-  nameserver       = "1.1.1.1"
-  startup          = ""
-  automatic_reboot = "true"
-
-  # Lifecycle
   lifecycle {
-    ignore_changes = [
-      network,
-    ]
+    ignore_changes = [network]
   }
 }
 
-# Load balancer (HAProxy)
-# resource "proxmox_vm_qemu" "k8s_lb" {
-
-#   name        = "k8s-lb"
-#   target_node = var.target_node
-#   clone       = var.vm_template
-#   full_clone  = true
-
-#   # VM Configuration
-#   cores    = 2
-#   sockets  = 1
-#   memory   = 4096
-#   agent    = 1
-#   vmid     = "400"
-#   onboot   = true
-
-#   # Display
-#   vga {
-#     type   = "std"
-#     memory = 16
-#   }
-
-#   # Network
-#   network {
-#     id     = 0
-#     model  = "virtio"
-#     bridge = "vmbr0"
-#   }
-
-#   scsihw = "virtio-scsi-single"
-#   # Disk
-#   disks {
-#     ide {
-#       ide2 {
-#         cloudinit {
-#           storage = "zpool-SSD"
-#         }
-#       }
-#     }
-#     scsi {
-#       scsi0 {
-#         disk {
-#           size      = 10
-#           cache     = "writeback"
-#           storage   = "zpool-SSD"
-#           replicate = false
-#         }
-#       }
-#     }
-#   }
-
-  # boot = "order=scsi0"
-  # # Cloud-init
-  # os_type    = "cloud-init"
-  # ciuser     = "ubuntu"
-  # cipassword = "ubuntu"
-  
-#   # CORREÇÃO APLICADA AQUI
-#   sshkeys = <<-EOT
-#     ${var.PUBLIC_SSH_KEY}
-#   EOT
-
-#   ipconfig0        = "ip=192.168.18.140/24,gw=192.168.18.1"
-#   nameserver       = "1.1.1.1"
-#   startup          = ""
-#   automatic_reboot = "true"
-
-#   # Lifecycle
-#   lifecycle {
-#     ignore_changes = [
-#       network,
-#     ]
-#   }
-# }
-
-# Outputs
+# ===================================================================
+# Outputs e Inventário Ansible
+# ===================================================================
 output "master_ips" {
   value = [for vm in proxmox_vm_qemu.k8s_master : vm.default_ipv4_address]
 }
@@ -279,10 +213,6 @@ output "master_ips" {
 output "worker_ips" {
   value = [for vm in proxmox_vm_qemu.k8s_worker : vm.default_ipv4_address]
 }
-
-# output "lb_ip" {
-#   value = proxmox_vm_qemu.k8s_lb.default_ipv4_address
-# }
 
 # Generate Ansible inventory
 resource "local_file" "ansible_inventory" {
