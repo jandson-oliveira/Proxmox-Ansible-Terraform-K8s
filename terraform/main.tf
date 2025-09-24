@@ -4,7 +4,7 @@ terraform {
   required_providers {
     proxmox = {
       source  = "telmate/proxmox"
-      version = "3.0.1-rc9"
+      version = "3.0.2-rc04"
     }
   }
 }
@@ -23,13 +23,11 @@ provider "proxmox" {
 variable "PROXMOX_URL" {
   description = "Proxmox API URL"
   type        = string
-  default     = "https://190.89.249.84:8006/api2/json"
 }
 
 variable "PROXMOX_USER" {
   description = "Proxmox username"
   type        = string
-  default     = "terraform-user@pve!terraform-token"
 }
 
 variable "PROXMOX_TOKEN" {
@@ -43,48 +41,50 @@ variable "PUBLIC_SSH_KEY" {
   type        = string
 }
 
-variable "vm_template" {
-  description = "VM template name"
-  type        = string
-  default     = "ubuntu-22.04-template"
+variable "target_nodes" {
+  description = "A list of Proxmox node names."
+  type        = list(string)
+  default     = ["pve1", "pve2"]
 }
 
-variable "target_node" {
-  description = "Proxmox node name"
+# CORREÇÃO: Usando uma variável simples para o nome do template
+variable "vm_template_name" {
+  description = "The name of the VM template to clone."
   type        = string
-  default     = "catan"
+  default     = "ubuntu-2204-cloud-template"
 }
 
-# <<< CORREÇÃO: Variáveis de lista para os IPs públicos >>>
 variable "master_ips" {
   description = "Lista de IPs para os nós master."
   type        = list(string)
-  default     = ["190.89.249.214"]
+  default     = []
 }
 
 variable "worker_ips" {
   description = "Lista de IPs para os nós worker."
   type        = list(string)
-  default     = ["190.89.249.215", "190.89.249.216"]
+  default     = []
 }
 
 # ===================================================================
 # Nós Master
 # ===================================================================
 resource "proxmox_vm_qemu" "k8s_master" {
-  count       = 1
+  count       = length(var.master_ips)
   name        = "k8s-master-${count.index + 1}"
-  target_node = var.target_node
-  clone       = var.vm_template
-  full_clone  = true
+  target_node = element(var.target_nodes, count.index % length(var.target_nodes))
+
+  # CORREÇÃO: Usando o nome do template diretamente
+  clone      = var.vm_template_name
+  full_clone = true
 
   # VM Configuration
-  cores    = 2
-  sockets  = 1
-  memory   = 2048
-  agent    = 1
-  vmid     = "10${count.index + 1}"
-  onboot   = true
+  cores   = 2
+  sockets = 1
+  memory  = 2048
+  agent   = 1
+  vmid    = "10${count.index + 1}"
+  onboot  = true
 
   # Display
   vga {
@@ -127,9 +127,7 @@ resource "proxmox_vm_qemu" "k8s_master" {
   ciuser     = "ubuntu"
   cipassword = "ubuntu"
   sshkeys    = var.PUBLIC_SSH_KEY
-
-  # <<< CORREÇÃO: Usando a variável de lista de IPs. Verifique o gateway e a máscara! >>>
-  ipconfig0  = "ip=${var.master_ips[count.index]}/24,gw=190.89.249.1"
+  ipconfig0  = "ip=${var.master_ips[count.index]}/24,gw=192.168.18.1"
   nameserver = "1.1.1.1"
 }
 
@@ -138,19 +136,21 @@ resource "proxmox_vm_qemu" "k8s_master" {
 # Nós Worker
 # ===================================================================
 resource "proxmox_vm_qemu" "k8s_worker" {
-  count       = 2
+  count       = length(var.worker_ips)
   name        = "k8s-worker-${count.index + 1}"
-  target_node = var.target_node
-  clone       = var.vm_template
-  full_clone  = true
+  target_node = element(var.target_nodes, count.index % length(var.target_nodes))
+
+  # CORREÇÃO: Usando o nome do template diretamente
+  clone      = var.vm_template_name
+  full_clone = true
 
   # VM Configuration
-  cores    = 2
-  sockets  = 1
-  memory   = 4096
-  agent    = 1
-  vmid     = "20${count.index + 1}"
-  onboot   = true
+  cores   = 2
+  sockets = 1
+  memory  = 4096
+  agent   = 1
+  vmid    = "20${count.index + 1}"
+  onboot  = true
 
   # Display
   vga {
@@ -193,9 +193,7 @@ resource "proxmox_vm_qemu" "k8s_worker" {
   ciuser     = "ubuntu"
   cipassword = "ubuntu"
   sshkeys    = var.PUBLIC_SSH_KEY
-
-  # <<< CORREÇÃO: Usando a variável de lista de IPs. Verifique o gateway e a máscara! >>>
-  ipconfig0  = "ip=${var.worker_ips[count.index]}/24,gw=190.89.249.1"
+  ipconfig0  = "ip=${var.worker_ips[count.index]}/24,gw=192.168.18.1"
   nameserver = "1.1.1.1"
 
   lifecycle {
@@ -207,18 +205,18 @@ resource "proxmox_vm_qemu" "k8s_worker" {
 # Outputs e Inventário Ansible
 # ===================================================================
 output "master_ips" {
-  value = [for vm in proxmox_vm_qemu.k8s_master : vm.default_ipv4_address]
+  value = var.master_ips
 }
 
 output "worker_ips" {
-  value = [for vm in proxmox_vm_qemu.k8s_worker : vm.default_ipv4_address]
+  value = var.worker_ips
 }
 
 # Generate Ansible inventory
 resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/inventory.tpl", {
-    master_ips = [for vm in proxmox_vm_qemu.k8s_master : vm.default_ipv4_address]
-    worker_ips = [for vm in proxmox_vm_qemu.k8s_worker : vm.default_ipv4_address]
+    master_ips = var.master_ips
+    worker_ips = var.worker_ips
   })
   filename = "../ansible/inventory/hosts.yml"
 }
