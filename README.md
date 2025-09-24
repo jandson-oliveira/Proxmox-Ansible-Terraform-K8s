@@ -2,7 +2,7 @@
 
 Este documento é um guia completo para provisionar um cluster Kubernetes de alta disponibilidade em um ambiente Proxmox VE, utilizando uma abordagem de Infraestrutura como Código (IaC).
 
-### Arquitetura do Cluster
+# Arquitetura do Cluster
 
 A infraestrutura foi projetada para ser resiliente e escalável, consistindo em:
 
@@ -12,7 +12,7 @@ A infraestrutura foi projetada para ser resiliente e escalável, consistindo em:
 -   **Rede dos Pods:** **Flannel CNI** para a comunicação entre os contêineres.
 -   **Container Runtime:** **Containerd** como o ambiente de execução dos contêineres.
 
-### Tecnologias Utilizadas
+# Tecnologias Utilizadas
 
 | Tecnologia | Finalidade |
 | :--- | :--- |
@@ -24,7 +24,7 @@ A infraestrutura foi projetada para ser resiliente e escalável, consistindo em:
 
 ---
 
-## Guia de Implementação
+# Guia de Implementação
 
 ### Pré-requisitos
 
@@ -40,37 +40,37 @@ Garanta que seu ambiente atende aos seguintes critérios antes de começar:
     -   `ansible` (versão >= 2.9) instalado.
     -   Um par de chaves SSH gerado (geralmente em `~/.ssh/id_rsa` e `~/.ssh/id_rsa.pub`).
 
-### Passo 1: Preparar o Template Proxmox
+# Passo 1: Preparar o Template Proxmox
 
 Um template com `cloud-init` é crucial para a automação. Execute os comandos abaixo para criar um template do Ubuntu 22.04.
 
-# 1. Baixar a imagem cloud oficial do Ubuntu Jammy Jellyfish
+### 1. Baixar a imagem cloud oficial do Ubuntu Jammy Jellyfish
 echo "Baixando a imagem cloud do Ubuntu 22.04..."
 wget -O /tmp/jammy-server-cloudimg-amd64.img [https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img](https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img)
 
-# 2. Criar uma nova VM base com ID 9000
+### 2. Criar uma nova VM base com ID 9000
 qm create 9000 --name "ubuntu-2204-cloud-template" --memory 2048 --cores 2 --net0 virtio,bridge=vmbr0 --ostype l26
 
-# 3. Importar o disco baixado para o storage 'local-lvm'
+### 3. Importar o disco baixado para o storage 'local-lvm'
 qm importdisk 9000 /tmp/jammy-server-cloudimg-amd64.img local-lvm
 
-# 4. Anexar o disco à VM como um dispositivo SCSI na controladora virtio-scsi
+### 4. Anexar o disco à VM como um dispositivo SCSI na controladora virtio-scsi
 qm set 9000 --scsihw virtio-scsi-pci --scsi0 local-lvm:vm-9000-disk-0
 
-# 5. Adicionar a unidade de CD-ROM para ser usada pelo cloud-init
+### 5. Adicionar a unidade de CD-ROM para ser usada pelo cloud-init
 qm set 9000 --ide2 local-lvm:cloudinit
 
-# 6. Definir o novo disco SCSI como a principal opção de boot
+### 6. Definir o novo disco SCSI como a principal opção de boot
 qm set 9000 --boot order=scsi0
 
-# 7. Habilitar o QEMU Guest Agent para comunicação com o hypervisor
+### 7. Habilitar o QEMU Guest Agent para comunicação com o hypervisor
 qm set 9000 --agent enabled=1
 
-# 8. Converter a VM em um template para que não possa ser iniciada, apenas clonada
+### 8. Converter a VM em um template para que não possa ser iniciada, apenas clonada
 qm template 9000
 
 
-### Passo 2: Configurar Variáveis de Ambiente
+# Passo 2: Configurar Variáveis de Ambiente
 
 O Terraform precisa de credenciais para se conectar à API do Proxmox.
 
@@ -80,43 +80,44 @@ O Terraform precisa de credenciais para se conectar à API do Proxmox.
     export TF_VAR_PROXMOX_TOKEN="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
     ```
 
-### Passo 3: Executar a Implantação
+# Passo 3: Executar a Implantação
 
 O script `setup.sh` orquestra a execução do Terraform e do Ansible em sequência.
 
 
-# 1. Dê permissão de execução ao script
+### 1. Dê permissão de execução ao script
 chmod +x scripts/setup.sh
 
-# 2. Execute o script para iniciar a implantação completa do cluster
+### 2. Execute o script para iniciar a implantação completa do cluster
 ./scripts/setup.sh
 
-# 3. Destruição do Ambiente
+### 3. Destruição do Ambiente
 Para remover completamente todos os recursos criados por este laboratório, use o script destroy.sh.
 
-# Dê permissão de execução
+### Dê permissão de execução
 chmod +x scripts/destroy.sh
 
-# Execute o script de destruição
+### Execute o script de destruição
 ./scripts/destroy.sh
 
-### Passo 4: Acessar o Cluster
+
+# Passo 4: Acessar o Cluster
 Após a conclusão, o arquivo de configuração do Kubernetes (kubeconfig) estará no primeiro nó master.
 
 Gerenciamento via sua máquina local (Recomendado):
 
-# Copie o kubeconfig do master para sua máquina local
+### Copie o kubeconfig do master para sua máquina local
 scp ubuntu@<IP_DO_MASTER_1>:~/.kube/config ~/.kube/config-homelab
 
-# Exporte a variável KUBECONFIG para que o kubectl use este arquivo
+### Exporte a variável KUBECONFIG para que o kubectl use este arquivo
 export KUBECONFIG=~/.kube/config-homelab
 
-# Verifique a saúde do cluster
+### Verifique a saúde do cluster
 kubectl get nodes
 kubectl cluster-info
 
 
-### Comandos Importantes
+# Comandos Importantes
 Entre no diretório terraform para rodar comandos que podem ajudar na resolução de algum problema.
 
 terraform init: Inicializa o diretório, baixando provedores e módulos.
