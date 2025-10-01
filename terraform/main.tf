@@ -5,7 +5,6 @@ terraform {
     proxmox = {
       source  = "telmate/proxmox"
       version = "3.0.2-rc04"
-      version = "3.0.2-rc04"
     }
   }
 }
@@ -52,20 +51,17 @@ variable "vm_template_name" {
   description = "The name of the VM template to clone."
   type        = string
   default     = "ubuntu-2204-cloud-template"
-  default     = "ubuntu-2204-cloud-template"
 }
 
 variable "master_ips" {
   description = "Lista de IPs para os nós master."
   type        = list(string)
   default     = []
-  default     = []
 }
 
 variable "worker_ips" {
   description = "Lista de IPs para os nós worker."
   type        = list(string)
-  default     = []
   default     = []
 }
 
@@ -76,13 +72,13 @@ resource "proxmox_vm_qemu" "k8s_master" {
   count = length(var.master_ips)
   name  = "k8s-master-${count.index + 1}"
   
-
+  # VOLTAMOS A USAR A VARIÁVEL ESTÁTICA
   target_node = element(var.target_nodes, count.index % length(var.target_nodes))
 
   clone      = var.vm_template_name
   full_clone = true
 
-  
+  # CORRIGIDO: Sintaxe da CPU atualizada.
   cpu {
     cores   = 2
     sockets = 1
@@ -135,7 +131,6 @@ resource "proxmox_vm_qemu" "k8s_master" {
   cipassword = "ubuntu"
   sshkeys    = var.PUBLIC_SSH_KEY
   ipconfig0  = "ip=${var.master_ips[count.index]}/24,gw=192.168.18.1"
-  ipconfig0  = "ip=${var.master_ips[count.index]}/24,gw=192.168.18.1"
   nameserver = "1.1.1.1"
 }
 
@@ -147,13 +142,13 @@ resource "proxmox_vm_qemu" "k8s_worker" {
   count = length(var.worker_ips)
   name  = "k8s-worker-${count.index + 1}"
   
-  
+  # VOLTAMOS A USAR A VARIÁVEL ESTÁTICA
   target_node = element(var.target_nodes, count.index % length(var.target_nodes))
 
   clone      = var.vm_template_name
   full_clone = true
 
-  
+  # CORRIGIDO: Sintaxe da CPU atualizada.
   cpu {
     cores   = 2
     sockets = 1
@@ -206,7 +201,6 @@ resource "proxmox_vm_qemu" "k8s_worker" {
   cipassword = "ubuntu"
   sshkeys    = var.PUBLIC_SSH_KEY
   ipconfig0  = "ip=${var.worker_ips[count.index]}/24,gw=192.168.18.1"
-  ipconfig0  = "ip=${var.worker_ips[count.index]}/24,gw=192.168.18.1"
   nameserver = "1.1.1.1"
 
   lifecycle {
@@ -218,19 +212,15 @@ resource "proxmox_vm_qemu" "k8s_worker" {
 # ===================================================================
 output "master_ips" {
   value = var.master_ips
-  value = var.master_ips
 }
 
 output "worker_ips" {
-  value = var.worker_ips
   value = var.worker_ips
 }
 
 # Generate Ansible inventory
 resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/inventory.tpl", {
-    master_ips = var.master_ips
-    worker_ips = var.worker_ips
     master_ips = var.master_ips
     worker_ips = var.worker_ips
   })
