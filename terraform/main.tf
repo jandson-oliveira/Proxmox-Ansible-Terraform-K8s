@@ -72,13 +72,13 @@ resource "proxmox_vm_qemu" "k8s_master" {
   count = length(var.master_ips)
   name  = "k8s-master-${count.index + 1}"
   
-
+  # VOLTAMOS A USAR A VARIÁVEL ESTÁTICA
   target_node = element(var.target_nodes, count.index % length(var.target_nodes))
 
   clone      = var.vm_template_name
   full_clone = true
 
-  
+  # CORRIGIDO: Sintaxe da CPU atualizada.
   cpu {
     cores   = 2
     sockets = 1
@@ -142,13 +142,13 @@ resource "proxmox_vm_qemu" "k8s_worker" {
   count = length(var.worker_ips)
   name  = "k8s-worker-${count.index + 1}"
   
-  
+  # VOLTAMOS A USAR A VARIÁVEL ESTÁTICA
   target_node = element(var.target_nodes, count.index % length(var.target_nodes))
 
   clone      = var.vm_template_name
   full_clone = true
 
-  
+  # CORRIGIDO: Sintaxe da CPU atualizada.
   cpu {
     cores   = 2
     sockets = 1
