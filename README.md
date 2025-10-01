@@ -1,3 +1,4 @@
+
 # Projeto: Kubernetes com Proxmox, Terraform e Ansible
 
 Este documento é um guia completo para provisionar um cluster Kubernetes de alta disponibilidade em um ambiente Proxmox VE, utilizando uma abordagem de Infraestrutura como Código (IaC).
@@ -6,10 +7,13 @@ Este documento é um guia completo para provisionar um cluster Kubernetes de alt
 
 A infraestrutura foi projetada para ser resiliente e escalável, consistindo em:
 
--   **Plano de Controle (HA):** 2 nós master para garantir a disponibilidade da API do Kubernetes.
--   **Plano de Dados:** 2 nós worker para a execução das cargas de trabalho (aplicações).
--   **Balanceador de Carga:** 1 nó dedicado com **HAProxy** para distribuir o tráfego entre os masters.
+-   **Master com (HA):** 3 nós master para garantir a disponibilidade da API do Kubernetes usando as boas práticas,2 master no node 1(pve1), 1 master no node 2 (pve2)
+-   **Worker:** 5 nós worker para a execução das cargas de trabalho (aplicações) 3 worker no node 1(pve1), 2 worker no node 2 (pve2).
+-   **Balanceador de Carga:** 1 nó dedicado com **MetalLB** para distribuir o tráfego entre os masters.
+-   **Keepalived + IP Virtual (VIP):** O `keepalived` foi instalado nos 3 nós master para gerenciar um endereço IP virtual flutuante.
+    sua Função é criar um ponto de acesso único e sempre disponível para a API do Kubernetes, se o mestre que detém o VIP falhar, outro assume o IP instantaneamente, garantindo que o cluster permaneça acessível.
 -   **Rede dos Pods:** **Flannel CNI** para a comunicação entre os contêineres.
+-   **DNS do Cluster:** **CoreDNS** Permite que os serviços dentro do cluster se descubram e se comuniquem usando nomes de DNS.
 -   **Container Runtime:** **Containerd** como o ambiente de execução dos contêineres.
 
 # Tecnologias Utilizadas
@@ -22,23 +26,9 @@ A infraestrutura foi projetada para ser resiliente e escalável, consistindo em:
 | **Kubernetes** | Orquestrador de contêineres para gerenciar o ciclo de vida das aplicações. |
 | **Ubuntu 22.04** | Sistema Operacional base para todos os nós do cluster. |
 
----
 
-# Guia de Implementação
-
-### Pré-requisitos
-
-Garanta que seu ambiente atende aos seguintes critérios antes de começar:
-
-1.  **Servidor Proxmox VE:**
-    -   Totalmente funcional e acessível pela rede.
-    -   Recursos de CPU, RAM e disco suficientes para 7 VMs.
-    -   Uma *network bridge* (ex: `vmbr0`) configurada para a rede das VMs.
-
-2.  **Máquina Local (de Controle):**
-    -   `terraform` (versão >= 1.0) instalado.
-    -   `ansible` (versão >= 2.9) instalado.
-    -   Um par de chaves SSH gerado (geralmente em `~/.ssh/id_rsa` e `~/.ssh/id_rsa.pub`).
+Se você já tem um template com `cloud-init` no seu proxmox, pule para a parte 2, caso não, continue aqui
+Obs.: use o nome do seu template no arquivo main.tf pois, é a partir dele que o ambiente será configurado.
 
 # Passo 1: Preparar o Template Proxmox
 
@@ -70,28 +60,37 @@ qm set 9000 --agent enabled=1
 qm template 9000
 
 
-# Passo 2: Configurar Variáveis de Ambiente
+# Passo 2: Configurar os Ip's para as máquinas virtuais, as variaveis de ambientes e os nomes dos Nós do proxmox
 
-O Terraform precisa de credenciais para se conectar à API do Proxmox.
+### No yml do **trraform.tfvars** temos que colocar os ips que irão ser configurados para as máquinas virtuais
 
-1.  **Exporte o segredo do Token da API** como uma variável de ambiente no seu terminal. **Não salve segredos em arquivos de texto.**
+Exemplo:
+master_ips = ["192.168.18.200", "192.168.18.220"]
+worker_ips = ["192.168.18.240", "192.168.18.245", "192.168.18.250", "192.168.18.230"]
+
+#### O Terraform precisa de credenciais para se conectar à API do Proxmox
+
+**Exporte o segredo do Token da API** como uma variável de ambiente no seu terminal.
+**Não salve segredos em arquivos de texto.**
 
     ```bash
     export TF_VAR_PROXMOX_TOKEN="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
     ```
+### Variavel que recebe o nome do nó do proxmox
+target_nodes = ["pve1", "pve2"]
 
 # Passo 3: Executar a Implantação
 
 O script `setup.sh` orquestra a execução do Terraform e do Ansible em sequência.
 
-
-### 1. Dê permissão de execução ao script
+### Dê permissão de execução ao script
 chmod +x scripts/setup.sh
 
-### 2. Execute o script para iniciar a implantação completa do cluster
+### Execute o script para iniciar a implantação completa do cluster
 ./scripts/setup.sh
 
-### 3. Destruição do Ambiente
+Se precisar destruir todo o ambiente...
+### Destruição do Ambiente
 Para remover completamente todos os recursos criados por este laboratório, use o script destroy.sh.
 
 ### Dê permissão de execução
@@ -99,7 +98,6 @@ chmod +x scripts/destroy.sh
 
 ### Execute o script de destruição
 ./scripts/destroy.sh
-
 
 # Passo 4: Acessar o Cluster
 Após a conclusão, o arquivo de configuração do Kubernetes (kubeconfig) estará no primeiro nó master.
@@ -141,5 +139,3 @@ terraform providers: Exibe a árvore de provedores utilizados.
 terraform destroy -target='...[i]': Destrói uma instância específica de um recurso.
 
 terraform apply -target='...': Aplica alterações em um recurso específico.
-
-terraform destroy -target='...' -auto-approve: Destrói um recurso sem pedir confirmação.
