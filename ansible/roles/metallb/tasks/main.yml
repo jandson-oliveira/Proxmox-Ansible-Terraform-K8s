@@ -1,0 +1,58 @@
+# ansible/roles/metallb/tasks/main.yml
+---
+- name: 1. Ensure metallb-system namespace exists
+  kubernetes.core.k8s:
+    name: metallb-system
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: 2. Add the MetalLB Helm repository
+  community.kubernetes.helm_repository:
+    name: metallb
+    repo_url: "https://metallb.github.io/metallb"
+    state: present
+
+- name: 3. Update Helm repository cache
+  ansible.builtin.command: helm repo update
+  changed_when: false 
+
+- name: 4. Install MetalLB from the Helm chart
+  kubernetes.core.helm:
+    name: metallb
+    chart_ref: metallb/metallb
+    release_namespace: metallb-system
+    state: present
+
+- name: 5. Wait for the MetalLB webhook deployment to become ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: metallb-controller
+    namespace: metallb-system
+  register: deployment_status
+  until: deployment_status.resources[0].status.readyReplicas | default(0) == deployment_status.resources[0].spec.replicas
+  retries: 20  # 20 retries * 15 seconds = 300s (5 minutes) max wait
+  delay: 15
+
+- name: 6. Apply MetalLB IP address pool and L2 advertisement
+  kubernetes.core.k8s:
+    state: present
+    definition: |
+      apiVersion: metallb.io/v1beta1
+      kind: IPAddressPool
+      metadata:
+        name: first-pool
+        namespace: metallb-system
+      spec:
+        addresses:
+        - 192.168.18.230-192.168.18.239 # <-- Ensure this range is valid and unused on your network
+      ---
+      apiVersion: metallb.io/v1beta1
+      kind: L2Advertisement
+      metadata:
+        name: example
+        namespace: metallb-system
+      spec:
+        ipAddressPools:
+        - first-pool

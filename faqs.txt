@@ -1,0 +1,7 @@
+fAQs
+
+Para troubleshooting, use o debug do script de setup.sh
+
+# ./scripts/setup.sh                    # Executa TUDO: Terraform + Ansible completo
+# ./scripts/setup.sh debug-prereqs      # Executa o DEBUG: Terraform + Ansible focado
+

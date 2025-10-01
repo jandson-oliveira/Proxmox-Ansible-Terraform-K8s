@@ -1,4 +1,3 @@
-*.tfvars
 id_rsa.pub
 .env
 /node_modules
@@ -8,3 +7,59 @@ id_rsa.pub
 *.tfstate
 *.tfstate.backup
 *.lock.hcl
+*./terraform
+.terraform.lock.hcl
+*.backup
+*.swp
+*.tmp
+*.out
+*.zip
+*.tar.gz
+*.license
+.settings.json
+*.vscode/
+bin/
+lib/
+lib64/
+.terraform
+pyvenv.cfg
+.vscode
+settings.json
+.vscode/
+.settings.json
+
+terraform/bin/
+terraform/lib/
+terraform/lib64/
+
+# Outras regras importantes que já discutimos
+.terraform/
+terraform.tfstate
+*.tfvars
+
+# Arquivos de cache e compilados do Python
+__pycache__/
+*.pyc
+
+# Ambientes virtuais (pastas comuns)
+venv/
+*.venv
+env/
+.env
+
+# Pastas de dependências específicas do seu projeto
+# (Já tínhamos adicionado isso antes, mas é bom confirmar)
+terraform/bin/
+terraform/lib/
+terraform/lib64/
+terraform/include/
+terraform/pyvenv.cfg
+
+
+# Ignorar completamente o ambiente virtual do Python dentro de 'terraform'
+terraform/bin/
+terraform/lib/
+terraform/lib64/
+terraform/include/
+terraform/share/
+terraform/pyvenv.cfg

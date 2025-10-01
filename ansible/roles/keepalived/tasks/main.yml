@@ -1,0 +1,59 @@
+---
+# ansible/roles/keepalived/tasks/main.yml (VERSÃO IMPERATIVA E FINAL)
+
+- name: 1. Install Keepalived package
+  ansible.builtin.apt:
+    name: keepalived
+    state: present
+
+- name: 2. Ensure keepalived service is stopped before configuration
+  ansible.builtin.systemd:
+    name: keepalived
+    state: stopped
+
+- name: 2-1. Create systemd override directory for keepalived
+  ansible.builtin.file:
+    path: /etc/systemd/system/keepalived.service.d
+    state: directory
+    mode: '0755'
+
+- name: 3. Create systemd override to make keepalived wait for the network
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/keepalived.service.d/override.conf
+    content: |
+      [Unit]
+      After=network-online.target
+      Wants=network-online.target
+    mode: '0644'
+
+- name: 4. Force systemd to reload configurations
+  ansible.builtin.systemd:
+    daemon_reload: yes
+
+- name: 5. Configure Keepalived with the dynamic template
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    mode: '0644'
+
+- name: 6. Start and enable the keepalived service
+  ansible.builtin.systemd:
+    name: keepalived
+    state: started
+    enabled: yes
+
+- name: 7. Wait for 120 seconds for the service to stabilize
+  ansible.builtin.pause:
+    seconds: 120
+
+- name: 8. Final check to assert that keepalived is running
+  block:
+    - name: Gather service facts after start
+      ansible.builtin.service_facts:
+    - name: Assert that keepalived is truly running
+      ansible.builtin.assert:
+        that:
+          - "'keepalived.service' in ansible_facts.services"
+          - "ansible_facts.services['keepalived.service'].state == 'running'"
+        success_msg: "✅ Serviço keepalived está 100% funcional no nó {{ inventory_hostname }}."
+        fail_msg: "❌ FALHA CRÍTICA: O serviço keepalived falhou ao iniciar no nó {{ inventory_hostname }}. Verifique os logs com 'journalctl -u keepalived'."

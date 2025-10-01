@@ -1,0 +1,26 @@
+---
+# ansible/roles/keepalived/handlers/main.yml
+
+- name: Reload systemd and restart Keepalived 
+  block:
+    - name: Restart the keepalived service
+      ansible.builtin.systemd:
+        name: keepalived
+        state: restarted
+        daemon_reload: yes
+        enabled: yes
+
+    - name: Wait for 10 seconds for the service to stabilize
+      ansible.builtin.pause:
+        seconds: 50
+
+    - name: Gather service facts again after restart
+      ansible.builtin.service_facts:
+
+    - name: Assert that keepalived service is running after restart
+      ansible.builtin.assert:
+        that:
+          - "'keepalived.service' in ansible_facts.services"
+          - "ansible_facts.services['keepalived.service'].state == 'running'"
+        success_msg: "✅ Serviço keepalived foi reiniciado e está rodando com sucesso."
+        fail_msg: "❌ FALHA CRÍTICA: O serviço keepalived falhou ao tentar reiniciar. Verifique os logs no nó."

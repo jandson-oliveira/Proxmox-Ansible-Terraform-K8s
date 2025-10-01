@@ -1,108 +1,139 @@
 ---
-# tasks file for common role - Prepares a node for Kubernetes
-
-- name: Install prerequisite packages
-  apt:
-    name:
-    - apt-transport-https
-    - ca-certificates
-    - curl
+# ansible/roles/kubernetes-master/tasks/main.yml 
+# ===================================================================
+# 1. Instalar dependências (pode ser movido para a role 'pre-reqs' no futuro)
+# ===================================================================
+- name: 1. Install pip for Python 3
+  ansible.builtin.apt:
+    name: python3-pip
     state: present
     update_cache: yes
 
-- name: Disable swap for current session
-  command: swapoff -a
-  when: ansible_swaptotal_mb > 0
-
-- name: Disable swap permanently in /etc/fstab
-  replace:
-    path: /etc/fstab
-    regexp: '^(.*swap.*)$'
-    replace: '# \1'
-
-- name: Load required kernel modules for container networking
-  modprobe:
-    name: "{{ item }}"
+- name: 2. Install Kubernetes python library for Ansible modules
+  ansible.builtin.pip:
+    name: kubernetes
     state: present
-  loop:
-  - overlay
-  - br_netfilter
 
-- name: Ensure kernel modules are loaded on boot
-  copy:
-    dest: /etc/modules-load.d/k8s.conf
-    content: |
-      overlay
-      br_netfilter
-
-- name: Set required sysctl parameters for Kubernetes
-  sysctl:
-    name: "{{ item.key }}"
-    value: "{{ item.value }}"
-    sysctl_file: /etc/sysctl.d/99-kubernetes-cri.conf # Makes settings persistent
-    state: present
-    reload: yes
-  loop:
-  - { key: 'net.bridge.bridge-nf-call-iptables', value: '1' }
-  - { key: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
-  - { key: 'net.ipv4.ip_forward', value: '1' }
-
-- name: Check if cluster is already initialized
-  stat:
+# ===================================================================
+# 2. Verificações de Pré-Voo (Pre-flight Checks)
+# ===================================================================
+- name: Pre-flight | Check if cluster is already initialized on this node
+  ansible.builtin.stat:
     path: /etc/kubernetes/admin.conf
-  register: k8s_init
+  register: k8s_init_status 
 
-- name: Initialize first master node
-  become: True
-  shell: |
-    sudo kubeadm init \
-       --control-plane-endpoint=190.89.249.214:6443 \
-       --upload-certs \
-       --pod-network-cidr=10.244.0.0/16
-  when:
-  - not k8s_init.stat.exists
-  - inventory_hostname == groups['kube_control_plane'][0]
-  register: kubeadm_init
+- name: Pre-flight | Assert that keepalived service is running
+  block:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+    - name: Assert that keepalived service is actually running
+      ansible.builtin.assert:
+        that:
+          - "'keepalived.service' in ansible_facts.services"
+          - "ansible_facts.services['keepalived.service'].state == 'running'"
+        fail_msg: "❌ FALHA: O serviço 'keepalived' não está rodando. Verifique os erros na execução da role 'keepalived'."
 
-- name: Create .kube directory
-  file:
-    path: /home/ubuntu/.kube
-    state: directory
-    owner: ubuntu
-    group: ubuntu
+- name: Pre-flight | Assert that the Virtual IP is assigned on the first master
+  when: inventory_hostname == groups['kube_control_plane'][0] and not k8s_init_status.stat.exists
+  block:
+    - name: Get network interface details
+      ansible.builtin.command: ip addr show
+      register: ip_addr_output
+      changed_when: false
+    - name: Assert that the Virtual IP is present
+      ansible.builtin.assert:
+        that:
+          - "K8S_API_VIP in ip_addr_output.stdout"
+        fail_msg: "❌ FALHA: VIP {{ K8S_API_VIP }} não encontrado. A role 'keepalived' pode ter falhado ao atribuir o IP."
 
-- name: Copy admin.conf to user's kube config
-  copy:
-    src: /etc/kubernetes/admin.conf
-    dest: /home/ubuntu/.kube/config
-    remote_src: yes
-    owner: ubuntu
-    group: ubuntu
+# ===================================================================
+# 3. Inicializar o Control Plane (Lógica HA)
+# ===================================================================
+- name: Initialize the first master node
+  when: inventory_hostname == groups['kube_control_plane'][0] and not k8s_init_status.stat.exists
+  block:
+    - name: Run kubeadm init with VIP
+      ansible.builtin.command: >
+        kubeadm init --control-plane-endpoint="{{ K8S_API_VIP }}:6443" --upload-certs --pod-network-cidr=10.244.0.0/16
+    - name: Generate a new join token
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: new_worker_join_command
+    - name: Upload certificates and get certificate key
+      ansible.builtin.command: kubeadm init phase upload-certs --upload-certs
+      register: upload_certs_result
+    - name: Extract certificate key from output
+      ansible.builtin.set_fact:
+        certificate_key: "{{ upload_certs_result.stdout_lines[-1] }}"
+    - name: Construct the definitive control-plane join command
+      ansible.builtin.set_fact:
+        cp_join_command: "{{ new_worker_join_command.stdout }} --control-plane --certificate-key {{ certificate_key }}"
+    - name: Store control-plane join command for other masters
+      ansible.builtin.copy:
+        content: "{{ cp_join_command }}"
+        dest: /tmp/kubeadm_cp_join_command.sh
+        mode: '0777'
+
+- name: Join subsequent master nodes
+  when: inventory_hostname != groups['kube_control_plane'][0] and not k8s_init_status.stat.exists
+  block:
+    - name: Fetch the control-plane join command from the first master
+      ansible.builtin.slurp:
+        src: /tmp/kubeadm_cp_join_command.sh
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      register: cp_join_command_raw
+    - name: Join the control plane
+      ansible.builtin.shell: "{{ cp_join_command_raw['content'] | b64decode }}"
+
+# ===================================================================
+# 4. Configurar Kubeconfig (para TODOS os mestres)
+# ===================================================================
+- name: Configure kubeconfig for users (ubuntu and root)
+  block:
+    - name: Create .kube directory for ubuntu user
+      ansible.builtin.file: { path: /home/ubuntu/.kube, state: directory, owner: ubuntu, group: ubuntu, mode: '0755' }
+    - name: Copy admin.conf to user's kube config
+      ansible.builtin.copy: { src: /etc/kubernetes/admin.conf, dest: /home/ubuntu/.kube/config, remote_src: yes, owner: ubuntu, group: ubuntu, mode: '0600' }
+    - name: Create .kube directory for root user
+      ansible.builtin.file: { path: /root/.kube, state: directory, mode: '0755' }
+    - name: Copy admin.conf to root's kube config
+      ansible.builtin.copy: { src: /etc/kubernetes/admin.conf, dest: /root/.kube/config, remote_src: yes, mode: '0600' }
+
+# ===================================================================
+# 5. Instalar Componentes do Cluster (apenas UMA VEZ, pelo primeiro mestre)
+# ===================================================================
+- name: Install cluster-wide components (CNI, Helm)
   when: inventory_hostname == groups['kube_control_plane'][0]
-
-- name: Install Flannel CNI
-  shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
-  become_user: ubuntu
-  when: inventory_hostname == groups['kube_control_plane'][0]
-
-- name: Get join command for control plane
-  shell: kubeadm token create --print-join-command --certificate-key $(kubeadm init phase upload-certs --upload-certs | sed -n '/^\[upload-certs\] Using certificate key:/ {n; p;}')
-  register: join_command_control_plane
-  when: inventory_hostname == groups['kube_control_plane'][0]
-
-- name: Get join command for workers
-  shell: kubeadm token create --print-join-command
-  register: join_command_workers
-  when: inventory_hostname == groups['kube_control_plane'][0]
-
-- name: Set join commands as facts
-  set_fact:
-    join_command_control_plane: "{{ hostvars[groups['kube_control_plane'][0]]['join_command_control_plane']['stdout'] }}"
-    join_command_workers: "{{ hostvars[groups['kube_control_plane'][0]]['join_command_workers']['stdout'] }}"
-  when: inventory_hostname != groups['kube_control_plane'][0]
-
-- name: Join additional master nodes
-  shell: "{{ join_command_control_plane }} --control-plane"
-  when:
-  - not k8s_init.stat.exists
-  - inventory_hostname != groups['kube_control_plane'][0]
+  block:
+    - name: Install Flannel CNI plugin
+      become: no
+      kubernetes.core.k8s:
+        state: present
+        src: https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+      register: flannel_applied
+      until: flannel_applied is not failed
+      retries: 5
+      delay: 10
+    - name: Wait for CoreDNS to become ready
+      become: no
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: coredns
+        namespace: kube-system
+      register: coredns_status
+      until: coredns_status.resources[0].status.readyReplicas | default(0) >= 1
+      retries: 30
+      delay: 10
+    - name: Install Helm
+      ansible.builtin.shell: |
+        set -e
+        HELM_VERSION="v3.16.0"
+        if [ ! -f /usr/local/bin/helm ]; then
+          cd /tmp
+          wget "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          tar -zxvf "helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          mv linux-amd64/helm /usr/local/bin/helm
+          rm -rf "helm-${HELM_VERSION}-linux-amd64.tar.gz" linux-amd64
+        fi
+      args:
+        warn: false

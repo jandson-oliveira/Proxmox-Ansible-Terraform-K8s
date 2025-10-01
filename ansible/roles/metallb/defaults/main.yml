@@ -1,0 +1,4 @@
+# ansible/roles/metallb/defaults/main.yml
+---
+# Altere aqui para o range de IPs que você reservou na sua rede local
+metallb_ip_range: "192.168.18.140-192.168.18.149"

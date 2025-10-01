@@ -1,0 +1,24 @@
+# Template explícito para /etc/keepalived/keepalived.conf
+global_defs {
+   router_id LVS_{{ inventory_hostname }}
+}
+
+vrrp_instance K8S_API {
+    state           {% if inventory_hostname == groups['kube_control_plane'][0] %}MASTER{% else %}BACKUP{% endif %}
+    
+    # Usa a variável explícita do inventário para garantir o nome correto
+    interface       {{ keepalived_interface }}
+    
+    virtual_router_id 51
+    priority        {% if inventory_hostname == groups['kube_control_plane'][0] %}150{% else %}100{% endif %}
+    advert_int 1
+    
+    authentication {
+        auth_type PASS
+        auth_pass your_secret_password
+    }
+    
+    virtual_ipaddress {
+        {{ K8S_API_VIP }}/24
+    }
+}

@@ -1,54 +1,50 @@
-# scripts/setup.sh
 #!/bin/bash
 
 set -e
 
-echo "Setting up Kubernetes Home Lab with Local Repository..."
+# ==============================================================================
+# SCRIPT DE SETUP PARA O CLUSTER KUBERNETES
+#
+# Uso:
+#   ./scripts/setup.sh                    # Executa TUDO: Terraform + Ansible completo
+#   ./scripts/setup.sh debug-prereqs      # Executa o DEBUG: Terraform + Ansible focado
+# ==============================================================================
 
-# Check if required tools are installed
-command -v terraform >/dev/null 2>&1 || { echo "Terraform is required but not installed. Aborting." >&2; exit 1; }
-command -v ansible >/dev/null 2>&1 || { echo "Ansible is required but not installed. Aborting." >&2; exit 1; }
+ACTION=${1:-all}
 
-# Create terraform.tfvars if it doesn't exist
-#if [ ! -f /Users/varun/Documents/git/varunshomelab/terraform/terraform.tfvars ]; then
-#    echo "Please create terraform/terraform.tfvars from terraform.tfvars.example"
-#    exit 1
-#fi
+# --- Lógica Principal ---
 
-# Initialize and apply Terraform
-echo "Initializing Terraform..."
-cd terraform
-terraform init
+if [[ "$ACTION" == "all" ]]; then
+    echo "MODO: Execução completa (Terraform + Ansible)"
+    echo "---------------------------------------------"
+    
+    echo "Applying Terraform configuration to build infrastructure..."
+    cd terraform
+    terraform init
+    terraform apply -auto-approve
+    cd ..
 
-echo "Planning Terraform deployment..."
-terraform plan
+    echo "Running full Ansible playbook..."
+    cd ansible
+    ansible-playbook -i inventory/hosts.yml site.yml
+    cd ..
 
-echo "Applying Terraform configuration..."
-terraform apply -auto-approve
+elif [[ "$ACTION" == "debug-prereqs" ]]; then
+    echo "MODO: DEBUG - Testando apenas os pré-requisitos"
+    echo "------------------------------------------------"
+    
+    echo "Applying Terraform configuration to ensure inventory is fresh..."
+    cd terraform
+    terraform init
+    terraform apply -auto-approve
+    cd .. 
 
-echo "Waiting for VMs to be ready..."
-sleep 30
+    echo "Running focused Ansible playbook for prerequisites..."
+    cd ansible
+    ansible-playbook -i inventory/hosts.yml site.yml --tags prereqs --limit k8s-master-1
+    cd ..
+fi
 
-# Run Ansible playbook
-echo "Running Ansible playbook..."
-cd ../ansible
-
-# # First setup the repository server
-# echo "Setting up repository server..."
-# ansible-playbook -i inventory/hosts.yml site.yml --limit repository
-
-# echo "Waiting for repository services to start..."
-# sleep 30
-
-# Then setup the rest of the infrastructure
-echo "Setting up Kubernetes cluster..."
-ansible-playbook -i inventory/hosts.yml site.yml --skip-tags repository
-
-echo "Kubernetes cluster setup complete!"
 echo ""
-#echo "Repository Server: http://$(terraform output -raw repo_server_ip)"
-echo "Docker Registry: http://$(terraform output -raw repo_server_ip):5000"
-echo "Registry UI: http://$(terraform output -raw repo_server_ip):8081"
-echo "Portainer: http://$(terraform output -raw repo_server_ip):9000"
+echo "Script finalizado."
 echo ""
-echo "Access your cluster with: kubectl --kubeconfig ~/.kube/config get nodes"

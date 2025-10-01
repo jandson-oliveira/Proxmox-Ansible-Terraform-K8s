@@ -1,10 +1,17 @@
 # ansible/roles/kubernetes-worker/tasks/main.yml
 ---
-- name: Check if node is already joined
-  stat:
+- name: Check if node is already part of a cluster
+  ansible.builtin.stat:
     path: /etc/kubernetes/kubelet.conf
   register: kubelet_conf
 
-- name: Join worker nodes to cluster
-  shell: "{{ hostvars[groups['kube_control_plane'][0]]['join_command_workers']['stdout'] }}"
+- name: Fetch the join command from the master node
+  ansible.builtin.slurp:
+    src: /tmp/kubeadm_join_command.sh
+  delegate_to: "{{ groups['kube_control_plane'][0] }}"
+  register: join_command_raw
+  when: not kubelet_conf.stat.exists
+
+- name: Join the worker node to the cluster
+  ansible.builtin.shell: "{{ join_command_raw['content'] | b64decode }}" # <--- THIS IS THE FIX
   when: not kubelet_conf.stat.exists

@@ -1,37 +1,85 @@
-# ---
-# - name: Setup Load Balancer
-#   hosts: loadbalancer
-#   become: yes
-#   roles:
-#     - haproxy
+---
 
-# PLAY 1: Prepara TODOS os nós do cluster (masters e workers)
-- name: Prepare all Kubernetes nodes
-  hosts: k8s_cluster # Assumindo que este grupo contém 'kube_control_plane' e 'kube_node'
+- name: Load inventory and verify all Kubernetes nodes are reachable
+  hosts: k8s_cluster
+  gather_facts: false
+  tasks:
+    - name: Wait for SSH connection to be available
+      ansible.builtin.wait_for_connection:
+        timeout: 30
+      retries: 5
+      delay: 10
+      register: connection_result
+      until: connection_result is success
+      ignore_errors: yes
+
+    - name: Fail if any nodes are unreachable after retries
+      ansible.builtin.fail:
+        msg: |
+          ❌ CRITICAL: Node {{ inventory_hostname }} is unreachable after 5 attempts!
+          
+          🔧 Please check:
+          1. Network connectivity to {{ inventory_hostname }}
+          2. SSH service status (systemctl status sshd)
+          3. Firewall rules (port 22)
+          4. Host availability and power status
+      when: connection_result is failed
+      run_once: false  
+
+- name: 1. Prepare all Kubernetes nodes
+  hosts: k8s_cluster
   become: yes
   roles:
-    - common
-    - docker
-    - kubernetes-common
-
-  # Esta é a tarefa mágica que resolve o problema:
-  # Ela força a execução de todos os handlers pendentes (como o reinício do containerd)
-  # ANTES de prosseguir para o próximo play.
+    - pre-reqs
   tasks:
     - name: Flush handlers to apply config changes
       meta: flush_handlers
 
-# PLAY 2: Configura o Control Plane nos nós que já foram preparados
-- name: Setup Kubernetes Control Plane
+- name: 2. Setup Kubernetes Control Plane
   hosts: kube_control_plane
   become: yes
   serial: 1
   roles:
+    - keepalived
     - kubernetes-master
 
-# PLAY 3: Configura os Workers nos nós que já foram preparados
-- name: Setup Kubernetes Workers
+- name: 3. Generate Worker Join Command
+  hosts: kube_control_plane[0]
+  become: yes
+  tasks:
+    - name: Generate a fresh worker join command
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: kubeadm_join_command
+      changed_when: false
+
+    - name: DEBUG | Show the full output of the join command task
+      ansible.builtin.debug:
+        var: kubeadm_join_command 
+
+    - name: Assert that the join command was created successfully
+      ansible.builtin.assert:
+        that:
+          - "kubeadm_join_command.rc == 0"
+          - "kubeadm_join_command.stdout is defined"
+          - "kubeadm_join_command.stdout | length > 0"
+        fail_msg: "❌ FALHA CRÍTICA: Não foi possível gerar o comando de join. Verifique a saída do DEBUG acima."
+        success_msg: "✅ Comando de join para os workers gerado com sucesso."
+
+    - name: Store the worker join command in a file
+      ansible.builtin.copy:
+        content: "{{ kubeadm_join_command.stdout }}" 
+        dest: /tmp/kubeadm_join_command.sh
+        mode: '0777'
+    
+
+- name: 4. Setup Kubernetes Workers
   hosts: kube_node
   become: yes
   roles:
     - kubernetes-worker
+
+- name: 5. Deploy MetalLB Load Balancer
+  hosts: kube_control_plane[0]
+  become: yes
+  roles:
+    - metallb
