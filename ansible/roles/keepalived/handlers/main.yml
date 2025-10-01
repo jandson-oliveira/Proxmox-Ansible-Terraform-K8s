@@ -1,5 +1,4 @@
 ---
-# ansible/roles/keepalived/handlers/main.yml
 
 - name: Reload systemd and restart Keepalived 
   block:

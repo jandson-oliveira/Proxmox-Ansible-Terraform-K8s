@@ -1,7 +1,7 @@
 ---
-# ansible/roles/kubernetes-master/tasks/main.yml 
+
 # ===================================================================
-# 1. Instalar dependências (pode ser movido para a role 'pre-reqs' no futuro)
+# 1. Instalar dependências 
 # ===================================================================
 - name: 1. Install pip for Python 3
   ansible.builtin.apt:
@@ -15,7 +15,7 @@
     state: present
 
 # ===================================================================
-# 2. Verificações de Pré-Voo (Pre-flight Checks)
+# 2. Verificações de (Pre-flight Checks)
 # ===================================================================
 - name: Pre-flight | Check if cluster is already initialized on this node
   ansible.builtin.stat:
@@ -47,7 +47,7 @@
         fail_msg: "❌ FALHA: VIP {{ K8S_API_VIP }} não encontrado. A role 'keepalived' pode ter falhado ao atribuir o IP."
 
 # ===================================================================
-# 3. Inicializar o Control Plane (Lógica HA)
+# 3. Inicializar o Control Plane
 # ===================================================================
 - name: Initialize the first master node
   when: inventory_hostname == groups['kube_control_plane'][0] and not k8s_init_status.stat.exists
@@ -85,7 +85,7 @@
       ansible.builtin.shell: "{{ cp_join_command_raw['content'] | b64decode }}"
 
 # ===================================================================
-# 4. Configurar Kubeconfig (para TODOS os mestres)
+# 4. Configurar Kubeconfig
 # ===================================================================
 - name: Configure kubeconfig for users (ubuntu and root)
   block:
@@ -99,7 +99,7 @@
       ansible.builtin.copy: { src: /etc/kubernetes/admin.conf, dest: /root/.kube/config, remote_src: yes, mode: '0600' }
 
 # ===================================================================
-# 5. Instalar Componentes do Cluster (apenas UMA VEZ, pelo primeiro mestre)
+# 5. Instalar Componentes do Cluster
 # ===================================================================
 - name: Install cluster-wide components (CNI, Helm)
   when: inventory_hostname == groups['kube_control_plane'][0]

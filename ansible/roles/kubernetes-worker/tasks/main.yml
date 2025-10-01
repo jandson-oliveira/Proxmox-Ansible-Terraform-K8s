@@ -1,4 +1,3 @@
-# ansible/roles/kubernetes-worker/tasks/main.yml
 ---
 - name: Check if node is already part of a cluster
   ansible.builtin.stat:
@@ -13,5 +12,5 @@
   when: not kubelet_conf.stat.exists
 
 - name: Join the worker node to the cluster
-  ansible.builtin.shell: "{{ join_command_raw['content'] | b64decode }}" # <--- THIS IS THE FIX
+  ansible.builtin.shell: "{{ join_command_raw['content'] | b64decode }}"
   when: not kubelet_conf.stat.exists

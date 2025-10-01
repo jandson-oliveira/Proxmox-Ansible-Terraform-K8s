@@ -1,5 +1,4 @@
 ---
-# ansible/roles/keepalived/tasks/main.yml (VERSÃO IMPERATIVA E FINAL)
 
 - name: 1. Install Keepalived package
   ansible.builtin.apt:

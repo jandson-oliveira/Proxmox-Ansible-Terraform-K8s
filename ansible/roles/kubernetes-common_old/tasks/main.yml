@@ -1,5 +1,4 @@
 ---
-# tasks file for kubernetes-common role - Container Runtime and Kube Tools
 
 - name: Install prerequisite packages
   ansible.builtin.apt:
